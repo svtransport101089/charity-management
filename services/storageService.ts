@@ -5,6 +5,11 @@ const STORAGE_KEYS = {
   DONATIONS: 'charity_app_donations',
 };
 
+// Helper to trigger update event
+const notifyListeners = () => {
+  window.dispatchEvent(new Event('charity-data-change'));
+};
+
 export const StorageService = {
   getExpenses: (): Expense[] => {
     const data = localStorage.getItem(STORAGE_KEYS.EXPENSES);
@@ -15,6 +20,7 @@ export const StorageService = {
     const expenses = StorageService.getExpenses();
     const newExpenses = [expense, ...expenses];
     localStorage.setItem(STORAGE_KEYS.EXPENSES, JSON.stringify(newExpenses));
+    notifyListeners();
     return newExpenses;
   },
 
@@ -22,6 +28,7 @@ export const StorageService = {
     const expenses = StorageService.getExpenses();
     const newExpenses = expenses.filter(e => e.id !== id);
     localStorage.setItem(STORAGE_KEYS.EXPENSES, JSON.stringify(newExpenses));
+    notifyListeners();
     return newExpenses;
   },
 
@@ -43,6 +50,7 @@ export const StorageService = {
     const donations = StorageService.getDonations();
     const newDonations = [donation, ...donations];
     localStorage.setItem(STORAGE_KEYS.DONATIONS, JSON.stringify(newDonations));
+    notifyListeners();
     return newDonations;
   }
 };
