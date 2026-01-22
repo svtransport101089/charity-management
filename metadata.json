@@ -1,0 +1,9 @@
+{
+  "name": "CharityFlow AI",
+  "description": "A professional charity management platform with AI-powered insights, expense tracking, and content generation.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone",
+    "geolocation"
+  ]
+}
