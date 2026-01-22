@@ -1,34 +1,33 @@
 import React, { useState, useEffect, createContext, useContext } from 'react';
 import { HashRouter, Routes, Route, Link, useLocation, Navigate } from 'react-router-dom';
 import { 
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell 
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, AreaChart, Area 
 } from 'recharts';
-import { AppRoute, Expense, Donation } from './types';
+import { AppRoute, Expense, Donation, Campaign } from './types';
 import { GeminiService } from './services/geminiService';
 import { StorageService } from './services/storageService';
 import { UPI_ID, CURRENCY, EXPENSE_CATEGORIES, PAYEE_NAME } from './constants';
 
 // --- Context & Hooks ---
 
-// Global Data Hook for Real-time Updates
 const useCharityData = () => {
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [donations, setDonations] = useState<Donation[]>([]);
+  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [notification, setNotification] = useState<{message: string, type: 'success' | 'info'} | null>(null);
 
   const fetchData = () => {
     setExpenses(StorageService.getExpenses());
     setDonations(StorageService.getDonations());
+    setCampaigns(StorageService.getCampaigns());
   };
 
   useEffect(() => {
     fetchData(); // Initial load
     
-    // Listen for local updates
     window.addEventListener('charity-data-change', fetchData);
-    // Listen for cross-tab updates
     window.addEventListener('storage', fetchData);
-    // Listen for custom notifications
+    
     const handleNotify = (e: any) => {
         setNotification(e.detail);
         setTimeout(() => setNotification(null), 4000);
@@ -42,7 +41,7 @@ const useCharityData = () => {
     };
   }, []);
 
-  return { expenses, donations, notification };
+  return { expenses, donations, campaigns, notification };
 };
 
 const notify = (message: string, type: 'success' | 'info' = 'success') => {
@@ -55,6 +54,7 @@ const Navbar = () => {
   const location = useLocation();
   const navItems = [
     { name: 'Dashboard', path: `/${AppRoute.DASHBOARD}`, icon: '📊' },
+    { name: 'Campaigns', path: `/${AppRoute.CAMPAIGNS}`, icon: '🚀' },
     { name: 'Donate', path: `/${AppRoute.DONATE}`, icon: '💸' },
     { name: 'Expenses', path: `/${AppRoute.EXPENSES}`, icon: '🧾' },
   ];
@@ -104,10 +104,19 @@ const Toast = ({ message, type }: { message: string, type: 'success' | 'info' })
     );
 };
 
+const ProgressBar = ({ current, target, colorClass = "bg-emerald-500" }: { current: number, target: number, colorClass?: string }) => {
+    const percentage = Math.min(100, Math.max(0, (current / target) * 100));
+    return (
+        <div className="w-full bg-slate-200 rounded-full h-2.5">
+            <div className={`h-2.5 rounded-full ${colorClass}`} style={{ width: `${percentage}%` }}></div>
+        </div>
+    );
+};
+
 // --- Pages ---
 
 const Dashboard = () => {
-  const { expenses, donations } = useCharityData();
+  const { expenses, donations, campaigns } = useCharityData();
 
   const totalDonations = donations.reduce((sum, d) => sum + d.amount, 0);
   const totalExpenses = expenses.reduce((sum, e) => sum + e.amount, 0);
@@ -137,7 +146,7 @@ const Dashboard = () => {
         </div>
       </header>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
         <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
           <h3 className="text-slate-500 font-medium">Total Donations</h3>
           <p className="text-3xl font-bold text-emerald-600 mt-2">₹{totalDonations.toLocaleString()}</p>
@@ -149,6 +158,10 @@ const Dashboard = () => {
         <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
           <h3 className="text-slate-500 font-medium">Net Balance</h3>
           <p className="text-3xl font-bold text-slate-800 mt-2">₹{balance.toLocaleString()}</p>
+        </div>
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
+          <h3 className="text-slate-500 font-medium">Active Campaigns</h3>
+          <p className="text-3xl font-bold text-indigo-600 mt-2">{campaigns.filter(c => c.status === 'Active').length}</p>
         </div>
       </div>
 
@@ -182,7 +195,9 @@ const Dashboard = () => {
               <div key={d.id} className="flex justify-between items-center p-3 bg-emerald-50 rounded-lg animate-fade-in">
                  <div>
                    <p className="font-semibold text-emerald-900">{d.donorName}</p>
-                   <p className="text-xs text-emerald-600">{new Date(d.date).toLocaleDateString()} • {new Date(d.date).toLocaleTimeString()}</p>
+                   <p className="text-xs text-emerald-600">
+                     {new Date(d.date).toLocaleDateString()} • {campaigns.find(c => c.id === d.campaignId)?.name || 'General Fund'}
+                   </p>
                  </div>
                  <span className="font-bold text-emerald-700">+₹{d.amount}</span>
               </div>
@@ -203,10 +218,119 @@ const Dashboard = () => {
   );
 };
 
+const Campaigns = () => {
+    const { campaigns, donations, expenses } = useCharityData();
+    const [showForm, setShowForm] = useState(false);
+    
+    // Form State
+    const [name, setName] = useState('');
+    const [desc, setDesc] = useState('');
+    const [target, setTarget] = useState('');
+
+    const handleCreate = () => {
+        if(!name || !target) return;
+        const newCampaign: Campaign = {
+            id: Date.now().toString(),
+            name,
+            description: desc,
+            targetAmount: Number(target),
+            status: 'Active',
+            startDate: new Date().toISOString()
+        };
+        StorageService.addCampaign(newCampaign);
+        setShowForm(false);
+        setName('');
+        setDesc('');
+        setTarget('');
+        notify('Campaign created successfully!');
+    };
+
+    return (
+        <div className="p-8">
+            <div className="flex justify-between items-center mb-8">
+                <div>
+                    <h2 className="text-3xl font-bold text-slate-800">Campaigns</h2>
+                    <p className="text-slate-500">Manage fundraising initiatives and track progress.</p>
+                </div>
+                <button 
+                    onClick={() => setShowForm(!showForm)}
+                    className="bg-indigo-600 text-white px-5 py-2 rounded-lg font-medium hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-200"
+                >
+                    {showForm ? 'Cancel' : '+ New Campaign'}
+                </button>
+            </div>
+
+            {showForm && (
+                <div className="bg-white p-6 rounded-xl shadow-md border border-indigo-100 mb-8 animate-fade-in">
+                    <h3 className="font-bold text-lg mb-4 text-slate-700">Create New Campaign</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                        <div>
+                            <label className="block text-sm font-medium text-slate-600 mb-1">Campaign Title</label>
+                            <input type="text" value={name} onChange={e => setName(e.target.value)} className="w-full border border-slate-300 rounded-lg p-2 focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="e.g. Clean Water Initiative" />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-slate-600 mb-1">Target Goal (₹)</label>
+                            <input type="number" value={target} onChange={e => setTarget(e.target.value)} className="w-full border border-slate-300 rounded-lg p-2 focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="e.g. 500000" />
+                        </div>
+                        <div className="md:col-span-2">
+                             <label className="block text-sm font-medium text-slate-600 mb-1">Description</label>
+                             <textarea value={desc} onChange={e => setDesc(e.target.value)} className="w-full border border-slate-300 rounded-lg p-2 focus:ring-2 focus:ring-indigo-500 outline-none" rows={2} placeholder="Brief details about the cause..." />
+                        </div>
+                    </div>
+                    <button onClick={handleCreate} className="bg-indigo-600 text-white px-6 py-2 rounded-lg font-medium hover:bg-indigo-700">Launch Campaign</button>
+                </div>
+            )}
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {campaigns.map(c => {
+                    const campaignDonations = donations.filter(d => d.campaignId === c.id).reduce((acc, d) => acc + d.amount, 0);
+                    const campaignExpenses = expenses.filter(e => e.campaignId === c.id).reduce((acc, e) => acc + e.amount, 0);
+                    const progress = (campaignDonations / c.targetAmount) * 100;
+
+                    return (
+                        <div key={c.id} className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden hover:shadow-md transition-shadow">
+                            <div className="p-6">
+                                <div className="flex justify-between items-start mb-2">
+                                    <h3 className="font-bold text-lg text-slate-800">{c.name}</h3>
+                                    <span className={`px-2 py-1 text-xs rounded-full font-bold ${c.status === 'Active' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>
+                                        {c.status}
+                                    </span>
+                                </div>
+                                <p className="text-slate-500 text-sm mb-4 h-10 line-clamp-2">{c.description}</p>
+                                
+                                <div className="mb-4">
+                                    <div className="flex justify-between text-sm mb-1">
+                                        <span className="text-slate-600">Raised: <span className="font-bold text-slate-900">₹{campaignDonations.toLocaleString()}</span></span>
+                                        <span className="text-slate-400">Goal: ₹{c.targetAmount.toLocaleString()}</span>
+                                    </div>
+                                    <ProgressBar current={campaignDonations} target={c.targetAmount} />
+                                </div>
+
+                                <div className="flex justify-between items-center pt-4 border-t border-slate-50 text-xs">
+                                    <div className="text-slate-500">
+                                        <div className="font-semibold text-slate-700">Start Date</div>
+                                        {new Date(c.startDate).toLocaleDateString()}
+                                    </div>
+                                    <div className="text-right">
+                                        <div className="font-semibold text-red-500">Expenses</div>
+                                        ₹{campaignExpenses.toLocaleString()}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    );
+                })}
+            </div>
+        </div>
+    );
+};
+
 const Donate = () => {
+  const { campaigns } = useCharityData();
   const [amount, setAmount] = useState<number>(1000);
   const [verifying, setVerifying] = useState(false);
   const [donorName, setDonorName] = useState('');
+  const [selectedCampaignId, setSelectedCampaignId] = useState<string>('');
   
   // Dynamic QR code generation with proper UPI parameters
   const upiUrl = `upi://pay?pa=${UPI_ID}&pn=${encodeURIComponent(PAYEE_NAME)}&cu=${CURRENCY}&am=${amount}`;
@@ -222,7 +346,8 @@ const Donate = () => {
       donorName: name,
       amount: amount,
       message: 'Mobile QR Scan',
-      date: new Date().toISOString()
+      date: new Date().toISOString(),
+      campaignId: selectedCampaignId || undefined
     });
     
     notify(`₹${amount} received from ${name}`, 'success');
@@ -239,7 +364,8 @@ const Donate = () => {
         donorName: donorName,
         amount: amount,
         message: 'Verified QR Payment',
-        date: new Date().toISOString()
+        date: new Date().toISOString(),
+        campaignId: selectedCampaignId || undefined
     });
 
     notify(`Thank you ${donorName}! Payment of ₹${amount} recorded.`, 'success');
@@ -256,6 +382,20 @@ const Donate = () => {
          <p className="text-slate-500 mb-6">Set up the terminal for the donor.</p>
          
          <div className="space-y-4">
+             <div>
+                 <label className="block text-slate-600 font-medium mb-2">Campaign</label>
+                 <select 
+                    value={selectedCampaignId}
+                    onChange={(e) => setSelectedCampaignId(e.target.value)}
+                    className="w-full px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-purple-500 outline-none bg-white"
+                 >
+                     <option value="">General Donation</option>
+                     {campaigns.filter(c => c.status === 'Active').map(c => (
+                         <option key={c.id} value={c.id}>{c.name}</option>
+                     ))}
+                 </select>
+             </div>
+
              <div>
                 <label className="block text-slate-600 font-medium mb-2">Amount (INR)</label>
                 <div className="relative">
@@ -302,6 +442,11 @@ const Donate = () => {
             </div>
             <h3 className="text-xl font-normal text-slate-900">{PAYEE_NAME}</h3>
             <p className="text-sm text-slate-500">{UPI_ID}</p>
+            {selectedCampaignId && (
+                <div className="mt-2 px-3 py-1 bg-purple-100 text-purple-700 rounded-full text-xs font-bold">
+                    for {campaigns.find(c => c.id === selectedCampaignId)?.name}
+                </div>
+            )}
           </div>
 
           {/* QR Code Container */}
@@ -381,10 +526,15 @@ const Donate = () => {
 };
 
 const Expenses = () => {
-  const { expenses } = useCharityData();
+  const { expenses, campaigns } = useCharityData();
   const [desc, setDesc] = useState('');
   const [amount, setAmount] = useState('');
+  const [selectedCampaignId, setSelectedCampaignId] = useState('');
   const [loading, setLoading] = useState(false);
+  
+  // Filtering and Sorting State
+  const [filterCategory, setFilterCategory] = useState('All');
+  const [sortBy, setSortBy] = useState('date-desc');
 
   const handleAdd = async () => {
     if (!desc || !amount) return;
@@ -403,48 +553,116 @@ const Expenses = () => {
       description: desc,
       amount: Number(amount),
       category,
-      date: new Date().toISOString()
+      date: new Date().toISOString(),
+      campaignId: selectedCampaignId || undefined
     };
 
     StorageService.addExpense(newExp);
     setDesc('');
     setAmount('');
+    setSelectedCampaignId('');
     setLoading(false);
     notify("Expense recorded successfully");
   };
+
+  // Logic to process expenses (Filter -> Sort)
+  const filteredExpenses = expenses
+    .filter(e => filterCategory === 'All' || e.category === filterCategory)
+    .sort((a, b) => {
+        switch (sortBy) {
+            case 'date-desc':
+                return new Date(b.date).getTime() - new Date(a.date).getTime();
+            case 'date-asc':
+                return new Date(a.date).getTime() - new Date(b.date).getTime();
+            case 'amount-desc':
+                return b.amount - a.amount;
+            case 'amount-asc':
+                return a.amount - b.amount;
+            default:
+                return 0;
+        }
+    });
 
   return (
     <div className="p-8">
       <h2 className="text-3xl font-bold text-slate-800 mb-6">Expense Management</h2>
       
-      <div className="bg-white p-6 rounded-xl shadow-sm mb-8 flex flex-col md:flex-row gap-4 items-end">
-        <div className="flex-1 w-full">
-          <label className="block text-sm font-medium text-slate-700 mb-1">Description</label>
-          <input 
-            type="text" 
-            value={desc} 
-            onChange={e => setDesc(e.target.value)}
-            placeholder="e.g. Printer paper"
-            className="w-full border border-slate-300 rounded-lg p-2.5 outline-none focus:ring-2 focus:ring-emerald-500"
-          />
+      {/* Add Form */}
+      <div className="bg-white p-6 rounded-xl shadow-sm mb-6 flex flex-col gap-4">
+        <h3 className="font-semibold text-slate-700">Add New Expense</h3>
+        <div className="flex flex-col md:flex-row gap-4 items-end">
+            <div className="flex-1 w-full">
+              <label className="block text-sm font-medium text-slate-700 mb-1">Description</label>
+              <input 
+                type="text" 
+                value={desc} 
+                onChange={e => setDesc(e.target.value)}
+                placeholder="e.g. Printer paper"
+                className="w-full border border-slate-300 rounded-lg p-2.5 outline-none focus:ring-2 focus:ring-emerald-500"
+              />
+            </div>
+            <div className="w-full md:w-48">
+              <label className="block text-sm font-medium text-slate-700 mb-1">Amount (₹)</label>
+              <input 
+                type="number" 
+                value={amount} 
+                onChange={e => setAmount(e.target.value)}
+                placeholder="0.00"
+                className="w-full border border-slate-300 rounded-lg p-2.5 outline-none focus:ring-2 focus:ring-emerald-500"
+              />
+            </div>
+            <div className="w-full md:w-64">
+                <label className="block text-sm font-medium text-slate-700 mb-1">Campaign (Optional)</label>
+                <select 
+                    value={selectedCampaignId}
+                    onChange={(e) => setSelectedCampaignId(e.target.value)}
+                    className="w-full border border-slate-300 rounded-lg p-2.5 outline-none focus:ring-2 focus:ring-emerald-500 bg-white"
+                >
+                    <option value="">General Expense</option>
+                    {campaigns.filter(c => c.status === 'Active').map(c => (
+                        <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                </select>
+            </div>
+            <button 
+              onClick={handleAdd}
+              disabled={loading}
+              className="w-full md:w-auto px-6 py-2.5 bg-emerald-600 text-white rounded-lg font-medium hover:bg-emerald-700 disabled:opacity-50 transition-colors"
+            >
+              {loading ? 'Categorizing...' : 'Add Expense'}
+            </button>
         </div>
-        <div className="w-full md:w-48">
-          <label className="block text-sm font-medium text-slate-700 mb-1">Amount (₹)</label>
-          <input 
-            type="number" 
-            value={amount} 
-            onChange={e => setAmount(e.target.value)}
-            placeholder="0.00"
-            className="w-full border border-slate-300 rounded-lg p-2.5 outline-none focus:ring-2 focus:ring-emerald-500"
-          />
+      </div>
+
+      {/* Filter and Sort Toolbar */}
+      <div className="flex flex-col sm:flex-row justify-between items-center mb-4 gap-4">
+        <div className="flex items-center gap-2 w-full sm:w-auto">
+             <span className="text-sm font-medium text-slate-500">Filter:</span>
+             <select 
+                value={filterCategory}
+                onChange={(e) => setFilterCategory(e.target.value)}
+                className="bg-white border border-slate-300 text-slate-700 text-sm rounded-lg focus:ring-emerald-500 focus:border-emerald-500 block p-2.5 outline-none"
+             >
+                <option value="All">All Categories</option>
+                {EXPENSE_CATEGORIES.map(cat => (
+                    <option key={cat} value={cat}>{cat}</option>
+                ))}
+             </select>
         </div>
-        <button 
-          onClick={handleAdd}
-          disabled={loading}
-          className="w-full md:w-auto px-6 py-2.5 bg-emerald-600 text-white rounded-lg font-medium hover:bg-emerald-700 disabled:opacity-50 transition-colors"
-        >
-          {loading ? 'Categorizing...' : 'Add Expense'}
-        </button>
+        
+        <div className="flex items-center gap-2 w-full sm:w-auto">
+             <span className="text-sm font-medium text-slate-500">Sort by:</span>
+             <select 
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value)}
+                className="bg-white border border-slate-300 text-slate-700 text-sm rounded-lg focus:ring-emerald-500 focus:border-emerald-500 block p-2.5 outline-none"
+             >
+                <option value="date-desc">Date (Newest)</option>
+                <option value="date-asc">Date (Oldest)</option>
+                <option value="amount-desc">Amount (High to Low)</option>
+                <option value="amount-asc">Amount (Low to High)</option>
+             </select>
+        </div>
       </div>
 
       <div className="bg-white rounded-xl shadow-sm overflow-hidden">
@@ -453,26 +671,41 @@ const Expenses = () => {
             <tr>
               <th className="p-4 font-semibold text-slate-600">Description</th>
               <th className="p-4 font-semibold text-slate-600">Category (AI)</th>
+              <th className="p-4 font-semibold text-slate-600">Campaign</th>
               <th className="p-4 font-semibold text-slate-600">Date</th>
               <th className="p-4 font-semibold text-slate-600 text-right">Amount</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {expenses.map(e => (
-              <tr key={e.id} className="hover:bg-slate-50">
-                <td className="p-4 text-slate-800">{e.description}</td>
-                <td className="p-4">
-                  <span className="px-2 py-1 bg-indigo-50 text-indigo-700 rounded text-xs font-semibold">
-                    {e.category}
-                  </span>
-                </td>
-                <td className="p-4 text-slate-500 text-sm">{new Date(e.date).toLocaleDateString()}</td>
-                <td className="p-4 text-right font-medium text-slate-800">₹{e.amount}</td>
-              </tr>
-            ))}
-            {expenses.length === 0 && (
+            {filteredExpenses.map(e => {
+                const campaignName = campaigns.find(c => c.id === e.campaignId)?.name;
+                return (
+                  <tr key={e.id} className="hover:bg-slate-50">
+                    <td className="p-4 text-slate-800">{e.description}</td>
+                    <td className="p-4">
+                      <span className="px-2 py-1 bg-indigo-50 text-indigo-700 rounded text-xs font-semibold">
+                        {e.category}
+                      </span>
+                    </td>
+                    <td className="p-4">
+                        {campaignName ? (
+                            <span className="text-xs font-medium text-emerald-700 bg-emerald-50 px-2 py-1 rounded-full">
+                                {campaignName}
+                            </span>
+                        ) : (
+                            <span className="text-xs text-slate-400">-</span>
+                        )}
+                    </td>
+                    <td className="p-4 text-slate-500 text-sm">{new Date(e.date).toLocaleDateString()}</td>
+                    <td className="p-4 text-right font-medium text-slate-800">₹{e.amount}</td>
+                  </tr>
+                );
+            })}
+            {filteredExpenses.length === 0 && (
               <tr>
-                <td colSpan={4} className="p-8 text-center text-slate-400">No expenses recorded yet.</td>
+                <td colSpan={5} className="p-8 text-center text-slate-400">
+                    {expenses.length === 0 ? "No expenses recorded yet." : "No expenses match your filter."}
+                </td>
               </tr>
             )}
           </tbody>
@@ -496,6 +729,7 @@ export default function App() {
           <Routes>
             <Route path="/" element={<Navigate to={`/${AppRoute.DASHBOARD}`} replace />} />
             <Route path={`/${AppRoute.DASHBOARD}`} element={<Dashboard />} />
+            <Route path={`/${AppRoute.CAMPAIGNS}`} element={<Campaigns />} />
             <Route path={`/${AppRoute.DONATE}`} element={<Donate />} />
             <Route path={`/${AppRoute.EXPENSES}`} element={<Expenses />} />
           </Routes>
