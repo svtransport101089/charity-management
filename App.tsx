@@ -545,7 +545,7 @@ const Expenses = () => {
     try {
       category = await GeminiService.categorizeExpense(desc, Number(amount));
     } catch (err) {
-      console.error("AI Categorization failed, defaulting to Other");
+      console.error("AI Categorization failed:", err);
     }
 
     const newExp: Expense = {

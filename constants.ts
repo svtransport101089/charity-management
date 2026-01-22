@@ -4,7 +4,7 @@ export const CURRENCY = "INR";
 export const APP_NAME = "CharityFlow AI";
 
 export const MODELS = {
-  TEXT_FAST: 'gemini-2.5-flash-lite-latest',
+  TEXT_FAST: 'gemini-3-flash-preview',
 };
 
 export const EXPENSE_CATEGORIES = [
